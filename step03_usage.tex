@@ -1,0 +1,69 @@
+\section{Step 2: A Clean \texttt{usage()} Function}
+
+Hard-coding the usage string inside \texttt{main} works once. As soon as we
+add options, the same message must be printed from many places (missing
+argument, missing option value, unknown flags). Duplicating the string is how
+usage text drifts out of date.
+
+\subsection{Why This Step Exists}
+
+\begin{itemize}[leftmargin=1.4em]
+    \item \textbf{Single source of truth} for how to invoke the program
+    \item \textbf{Immediate exit} on misuse---no half-initialized state
+    \item \texttt{static inline} keeps a tiny helper local to this translation
+          unit without the overhead of a separate \texttt{.c} file
+\end{itemize}
+
+\subsection{What Changes}
+
+We extract the error path into \texttt{usage()}, then call it when the URL is
+missing. The temporary \texttt{printf} confirmation stays for now so you can
+still smoke-test the binary; it will disappear once we actually fetch pages.
+
+\subsection{New Code}
+
+\begin{lstlisting}[style=snippet,language=C]
+static inline void usage(const char *progname)
+{
+    fprintf(stderr, "Usage: %s <URL>\n", progname);
+    exit(EXIT_FAILURE);
+}
+\end{lstlisting}
+
+And in \texttt{main}:
+
+\begin{lstlisting}[style=snippet,language=C]
+if (argc < 2)
+    usage(argv[0]);
+\end{lstlisting}
+
+Passing \texttt{argv[0]} means the message shows whatever name the user
+typed (\texttt{./urlget}, \texttt{urlget}, a full path, \ldots).
+
+\FullSourceStart{urlgetstep02}
+\begin{lstlisting}[style=oldcode,language=C,firstnumber=1]
+/* urlget.c -- Step 2: usage() helper */
+#include <stdio.h>
+#include <stdlib.h>
+\end{lstlisting}
+\begin{lstlisting}[style=newcode,language=C,firstnumber=last]
+static inline void usage(const char *progname)
+{
+    fprintf(stderr, "Usage: %s <URL>\n", progname);
+    exit(EXIT_FAILURE);
+}
+\end{lstlisting}
+\begin{lstlisting}[style=oldcode,language=C,firstnumber=last]
+int main(int argc, char *argv[])
+{
+\end{lstlisting}
+\begin{lstlisting}[style=newcode,language=C,firstnumber=last]
+    if (argc < 2)
+        usage(argv[0]);
+\end{lstlisting}
+\begin{lstlisting}[style=oldcode,language=C,firstnumber=last]
+    printf("Requested: %s\n", argv[1]);
+    return 0;
+}
+\end{lstlisting}
+\FullSourceStop

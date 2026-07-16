@@ -1,0 +1,224 @@
+\section{Step 3: Basic Argument Parsing}
+
+Real clients accept flags before the URL. We introduce a straightforward
+\texttt{for} loop over \texttt{argv} rather than \texttt{getopt\_long}, so
+every branch is visible and easy to extend in later steps.
+
+\subsection{Why a Manual Loop?}
+
+\begin{itemize}[leftmargin=1.4em]
+    \item No extra dependencies or platform quirks
+    \item Optional values (e.g.\ \texttt{-T} with or without a proxy) are
+          easier to express than with classic \texttt{getopt}
+    \item Students see exactly when the index advances past an option argument
+\end{itemize}
+
+\subsection{State We Introduce}
+
+\begin{itemize}[leftmargin=1.4em]
+    \item \texttt{url\_arg} --- the single positional URL (required)
+    \item \texttt{user\_agent} --- default browser-like string, overridable
+          with \texttt{-A} / \texttt{--user-agent}
+    \item Placeholders for Tor and redirect policy (wired up in later steps)
+\end{itemize}
+
+We also expand \texttt{usage()} so it documents the options we claim to
+support. Empty stubs (\texttt{use\_tor}, \texttt{follow\_redirects}, \ldots)
+document the roadmap without implementing behavior yet.
+
+\subsection{New Code --- Expanded Usage}
+
+\begin{lstlisting}[style=snippet,language=C]
+static inline void usage(const char *progname)
+{
+    fprintf(stderr,
+        "Usage: %s [options] <URL>\n\n"
+        "Options:\n"
+        "  -A, --user-agent STR     Set User-Agent\n"
+        "  -T, --tor [proxy]        Use Tor (default 127.0.0.1:9050)\n"
+        "  -H, --header STR         Add custom header (repeatable)\n"
+        "  -d, --data DATA          POST data (@file supported)\n"
+        "  -o, --output FILE        Write output to file\n"
+        "  -u, --user USER:PASS     Basic authentication\n"
+        "  -I, --head               HEAD request\n"
+        "      --no-location        Do not follow redirects\n"
+        "      --max-redirects N    Max redirects (default: 10)\n",
+        progname);
+    exit(EXIT_FAILURE);
+}
+\end{lstlisting}
+
+\subsection{New Code --- Parsing Loop (core options)}
+
+For this step we fully implement \texttt{-A} and recognition of the URL; Tor
+and the other flags are parsed enough to set variables we will use later.
+
+\begin{lstlisting}[style=snippet,language=C]
+const char *user_agent =
+    "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) "
+    "Gecko/20100101 Firefox/128.0";
+const char *url_arg = NULL;
+
+for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "-A") == 0 ||
+        strcmp(argv[i], "--user-agent") == 0) {
+        if (i + 1 < argc) user_agent = argv[++i];
+        else usage(argv[0]);
+    }
+    else if (url_arg == NULL) {
+        url_arg = argv[i];
+    }
+}
+
+if (url_arg == NULL)
+    usage(argv[0]);
+\end{lstlisting}
+
+\textbf{Rule of thumb:} option switches that take a value always
+\texttt{++i} after validating \texttt{i + 1 < argc}. Anything that is not a
+recognized option becomes the URL---first one wins.
+
+\FullSourceStart{urlgetstep03}
+\begin{lstlisting}[style=oldcode,language=C,firstnumber=1]
+/* urlget.c -- Step 3: argument parsing */
+#include <stdio.h>
+#include <stdlib.h>
+\end{lstlisting}
+\begin{lstlisting}[style=newcode,language=C,firstnumber=last]
+#include <string.h>
+#include <stdbool.h>
+\end{lstlisting}
+\begin{lstlisting}[style=oldcode,language=C,firstnumber=last]
+
+\end{lstlisting}
+\begin{lstlisting}[style=newcode,language=C,firstnumber=last]
+static inline void usage(const char *progname)
+{
+    fprintf(stderr,
+        "Usage: %s [options] <URL>\n\n"
+        "Options:\n"
+        "  -A, --user-agent STR     Set User-Agent\n"
+        "  -T, --tor [proxy]        Use Tor (default 127.0.0.1:9050)\n"
+        "  -H, --header STR         Add custom header (repeatable)\n"
+        "  -d, --data DATA          POST data (@file supported)\n"
+        "  -o, --output FILE        Write output to file\n"
+        "  -u, --user USER:PASS     Basic authentication\n"
+        "  -I, --head               HEAD request\n"
+        "      --no-location        Do not follow redirects\n"
+        "      --max-redirects N    Max redirects (default: 10)\n",
+        progname);
+    exit(EXIT_FAILURE);
+}
+\end{lstlisting}
+\begin{lstlisting}[style=oldcode,language=C,firstnumber=last]
+int main(int argc, char *argv[])
+{
+\end{lstlisting}
+\begin{lstlisting}[style=newcode,language=C,firstnumber=last]
+    const char *user_agent =
+        "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) "
+        "Gecko/20100101 Firefox/128.0";
+    const char *default_tor = "127.0.0.1:9050";
+
+    const char *url_arg = NULL;
+    const char *tor_proxy = NULL;
+    bool use_tor = false;
+    bool follow_redirects = true;
+    int max_redirects = 10;
+    bool head_request = false;
+    char extra_headers[4096] = {0};
+    char post_data[8192] = {0};
+    char output_file[256] = {0};
+    char auth_header[256] = {0};
+
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-A") == 0 ||
+            strcmp(argv[i], "--user-agent") == 0) {
+            if (i + 1 < argc) user_agent = argv[++i];
+            else usage(argv[0]);
+        }
+        else if (strcmp(argv[i], "-T") == 0 ||
+                 strcmp(argv[i], "--tor") == 0) {
+            use_tor = true;
+            if (i + 1 < argc && argv[i + 1][0] != '-' &&
+                strchr(argv[i + 1], ':')) {
+                tor_proxy = argv[i + 1];
+                i++;
+            }
+        }
+        else if (strcmp(argv[i], "-H") == 0 ||
+                 strcmp(argv[i], "--header") == 0) {
+            if (i + 1 < argc) {
+                strncat(extra_headers, argv[++i],
+                        sizeof(extra_headers) -
+                        strlen(extra_headers) - 3);
+                strcat(extra_headers, "\r\n");
+            } else usage(argv[0]);
+        }
+        else if (strcmp(argv[i], "-d") == 0 ||
+                 strcmp(argv[i], "--data") == 0) {
+            if (i + 1 < argc) {
+                const char *val = argv[++i];
+                if (val[0] == '@') {
+                    FILE *f = fopen(val + 1, "r");
+                    if (f) {
+                        fread(post_data, 1,
+                              sizeof(post_data) - 1, f);
+                        fclose(f);
+                    }
+                } else {
+                    strncpy(post_data, val,
+                            sizeof(post_data) - 1);
+                }
+            } else usage(argv[0]);
+        }
+        else if (strcmp(argv[i], "-o") == 0 ||
+                 strcmp(argv[i], "--output") == 0) {
+            if (i + 1 < argc)
+                strncpy(output_file, argv[++i],
+                        sizeof(output_file) - 1);
+            else usage(argv[0]);
+        }
+        else if (strcmp(argv[i], "-u") == 0 ||
+                 strcmp(argv[i], "--user") == 0) {
+            if (i + 1 < argc)
+                snprintf(auth_header, sizeof(auth_header),
+                    "Authorization: Basic %s\r\n", argv[++i]);
+            else usage(argv[0]);
+        }
+        else if (strcmp(argv[i], "-I") == 0 ||
+                 strcmp(argv[i], "--head") == 0) {
+            head_request = true;
+        }
+        else if (strcmp(argv[i], "--no-location") == 0) {
+            follow_redirects = false;
+        }
+        else if (strcmp(argv[i], "--max-redirects") == 0 &&
+                 i + 1 < argc) {
+            max_redirects = atoi(argv[++i]);
+        }
+        else if (url_arg == NULL) {
+            url_arg = argv[i];
+        }
+    }
+
+    if (url_arg == NULL)
+        usage(argv[0]);
+    if (use_tor && tor_proxy == NULL)
+        tor_proxy = default_tor;
+
+    printf("URL: %s\n", url_arg);
+    printf("User-Agent: %s\n", user_agent);
+    (void)follow_redirects; (void)max_redirects;
+    (void)head_request; (void)extra_headers;
+    (void)post_data; (void)output_file; (void)auth_header;
+\end{lstlisting}
+\begin{lstlisting}[style=oldcode,language=C,firstnumber=last]
+    return 0;
+}
+\end{lstlisting}
+\FullSourceStop
+
+The \texttt{(void)} casts silence unused-variable warnings until later steps
+consume those fields. Parsing early means step~9 will only \emph{use} the
+flags, not reinvent the CLI.

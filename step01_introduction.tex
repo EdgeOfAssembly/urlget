@@ -1,0 +1,52 @@
+\section{Introduction and Goals}
+
+We will build a tool called \texttt{urlget}: a small C program that behaves
+like a minimal subset of \texttt{curl}. By the end of this tutorial you will
+have a single-file client that can:
+
+\begin{itemize}[leftmargin=1.4em]
+    \item Fetch content from \texttt{http://} and \texttt{https://} URLs
+    \item Optionally route traffic through Tor via SOCKS5
+    \item Follow HTTP redirects (with a configurable limit)
+    \item Send custom headers, POST bodies, and basic authentication
+    \item Write the response body to a file instead of stdout
+    \item Compile clean release builds with debug tracing disabled via
+          \texttt{-DNDEBUG}
+\end{itemize}
+
+\subsection{Design Principles}
+
+\begin{enumerate}[leftmargin=1.4em]
+    \item \textbf{Incremental.} Each step produces a coherent program. You can
+          stop after any step and still understand what you have.
+    \item \textbf{Readable over clever.} Prefer clear control flow and small
+          helpers over dense one-liners.
+    \item \textbf{POSIX + OpenSSL.} We use standard sockets for TCP and
+          OpenSSL 3 for TLS. No third-party HTTP libraries.
+    \item \textbf{Explain the \emph{why}.} Every new block is introduced with
+          the problem it solves, not only the syntax.
+\end{enumerate}
+
+\subsection{What You Need}
+
+\begin{itemize}[leftmargin=1.4em]
+    \item A C compiler (\texttt{gcc} or \texttt{clang})
+    \item OpenSSL development headers (for the HTTPS step onward), e.g.\
+          \texttt{libssl-dev} on Debian/Ubuntu
+    \item Optional: a local Tor daemon listening on \texttt{127.0.0.1:9050}
+          if you want to try the SOCKS5 path
+\end{itemize}
+
+\subsection{How to Read This Tutorial}
+
+Each development step has the same shape:
+
+\begin{enumerate}[leftmargin=1.4em]
+    \item A short motivation: what is missing and why we add it now
+    \item Focused snippets of the \textbf{new} code (green background)
+    \item The \textbf{full source so far}: unchanged lines in light gray,
+          newly added lines in green so they stand out in context
+\end{enumerate}
+
+The final step assembles the complete \texttt{urlget.c} matching a real,
+usable client.

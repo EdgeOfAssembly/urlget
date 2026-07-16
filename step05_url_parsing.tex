@@ -1,0 +1,329 @@
+\section{Step 4: URL Parsing (\texttt{parse\_url})}
+
+Sockets need a host and port. HTTP needs a path. The user gives us one string
+like \texttt{https://example.com:8443/index.html?q=1}. \texttt{parse\_url}
+turns that string into a small structure we can trust for the rest of the
+program.
+
+\subsection{Why a Dedicated Struct?}
+
+\begin{lstlisting}[style=snippet,language=C]
+typedef struct {
+    bool https;
+    char host[256];
+    uint16_t port;
+    char path[512];
+} url_t;
+\end{lstlisting}
+
+Bundling fields avoids parallel arrays of arguments and makes later redirect
+handling easy: parse a new URL into a fresh \texttt{url\_t} and continue.
+
+\subsection{What the Parser Must Handle}
+
+\begin{itemize}[leftmargin=1.4em]
+    \item Optional scheme: \texttt{http://} (port~80) or \texttt{https://}
+          (port~443)
+    \item Host with optional \texttt{:port}
+    \item IPv6 literals in brackets: \texttt{[::1]}:port
+    \item Path defaulting to \texttt{"/"} when absent
+    \item Query-only forms such as \texttt{http://h?x=1} $\rightarrow$ path
+          \texttt{/?x=1}
+\end{itemize}
+
+\subsection{Algorithm (high level)}
+
+\begin{enumerate}[leftmargin=1.4em]
+    \item Copy the argument into a mutable buffer (we will insert
+          \texttt{'\textbackslash0'} while splitting).
+    \item Detect and strip the scheme; set \texttt{https} and the default port.
+    \item Find the first \texttt{/} or \texttt{?} --- that starts the path
+          (or query). Everything before it is \texttt{host[:port]}.
+    \item Split host and port (special-case \texttt{[ipv6]}).
+    \item Reject oversized components rather than overflowing fixed buffers.
+\end{enumerate}
+
+\subsection{New Code --- Core of \texttt{parse\_url}}
+
+\begin{lstlisting}[style=snippet,language=C]
+static inline int parse_url(const char *arg, url_t *u)
+{
+    char buf[1024];
+    if (strlen(arg) >= sizeof(buf)) return -1;
+    strcpy(buf, arg);
+
+    char *p = buf;
+    u->https = false;
+
+    if (strncmp(p, "https://", 8) == 0) {
+        u->https = true; p += 8;
+    } else if (strncmp(p, "http://", 7) == 0) {
+        p += 7;
+    }
+
+    char *sep = strpbrk(p, "/?");
+    char *hostport = p;
+
+    if (sep) {
+        if (*sep == '?') {
+            /* "host?query" -> path "/?query" */
+            size_t ql = strlen(sep);
+            if (ql + 2 > sizeof(u->path)) return -1;
+            u->path[0] = '/';
+            memcpy(u->path + 1, sep, ql + 1);
+        } else {
+            if (strlen(sep) >= sizeof(u->path)) return -1;
+            strcpy(u->path, sep);
+        }
+        *sep = '\0';
+    } else {
+        strcpy(u->path, "/");
+    }
+
+    /* host / [ipv6] / port split ... */
+    uint16_t def = u->https ? 443 : 80;
+    u->port = def;
+    /* ... see full source below for host/port details ... */
+    return 0;
+}
+\end{lstlisting}
+
+Call it from \texttt{main} after argument parsing succeeds:
+
+\begin{lstlisting}[style=snippet,language=C]
+url_t u = {0};
+if (parse_url(url_arg, &u) != 0) {
+    fprintf(stderr, "Failed to parse URL\n");
+    return EXIT_FAILURE;
+}
+printf("https=%d host=%s port=%u path=%s\n",
+       u.https, u.host, u.port, u.path);
+\end{lstlisting}
+
+\FullSourceStart{urlgetstep04}
+\begin{lstlisting}[style=oldcode,language=C,firstnumber=1]
+/* urlget.c -- Step 4: URL parsing */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
+\end{lstlisting}
+\begin{lstlisting}[style=newcode,language=C,firstnumber=last]
+#include <stdint.h>
+\end{lstlisting}
+\begin{lstlisting}[style=oldcode,language=C,firstnumber=last]
+
+\end{lstlisting}
+\begin{lstlisting}[style=newcode,language=C,firstnumber=last]
+typedef struct {
+    bool https;
+    char host[256];
+    uint16_t port;
+    char path[512];
+} url_t;
+
+static inline int parse_url(const char *arg, url_t *u)
+{
+    char buf[1024];
+    if (strlen(arg) >= sizeof(buf)) return -1;
+    strcpy(buf, arg);
+
+    char *p = buf;
+    u->https = false;
+
+    if (strncmp(p, "https://", 8) == 0) {
+        u->https = true; p += 8;
+    } else if (strncmp(p, "http://", 7) == 0) {
+        p += 7;
+    }
+
+    char *sep = strpbrk(p, "/?");
+    char *hostport = p;
+
+    if (sep) {
+        if (*sep == '?') {
+            size_t ql = strlen(sep);
+            if (ql + 2 > sizeof(u->path)) return -1;
+            u->path[0] = '/';
+            memcpy(u->path + 1, sep, ql + 1);
+        } else {
+            if (strlen(sep) >= sizeof(u->path)) return -1;
+            strcpy(u->path, sep);
+        }
+        *sep = '\0';
+    } else {
+        strcpy(u->path, "/");
+    }
+
+    char *host = u->host;
+    size_t hmax = sizeof(u->host) - 1;
+    uint16_t def = u->https ? 443 : 80;
+    u->port = def;
+
+    if (*hostport == '[') {
+        char *cl = strchr(hostport, ']');
+        if (!cl) return -1;
+        size_t hl = cl - (hostport + 1);
+        if (hl >= hmax) return -1;
+        memcpy(host, hostport + 1, hl);
+        host[hl] = '\0';
+        char *aft = cl + 1;
+        if (*aft == ':')
+            u->port = (uint16_t)strtol(aft + 1, NULL, 10);
+    } else {
+        char *col = strrchr(hostport, ':');
+        if (col) {
+            size_t hl = col - hostport;
+            if (hl >= hmax) return -1;
+            memcpy(host, hostport, hl);
+            host[hl] = '\0';
+            u->port = (uint16_t)strtol(col + 1, NULL, 10);
+        } else {
+            if (strlen(hostport) >= hmax) return -1;
+            strcpy(host, hostport);
+        }
+    }
+
+    if (u->port == 0) u->port = def;
+    return 0;
+}
+\end{lstlisting}
+\begin{lstlisting}[style=oldcode,language=C,firstnumber=last]
+static inline void usage(const char *progname)
+{
+    fprintf(stderr,
+        "Usage: %s [options] <URL>\n\n"
+        "Options:\n"
+        "  -A, --user-agent STR     Set User-Agent\n"
+        "  -T, --tor [proxy]        Use Tor (default 127.0.0.1:9050)\n"
+        "  -H, --header STR         Add custom header (repeatable)\n"
+        "  -d, --data DATA          POST data (@file supported)\n"
+        "  -o, --output FILE        Write output to file\n"
+        "  -u, --user USER:PASS     Basic authentication\n"
+        "  -I, --head               HEAD request\n"
+        "      --no-location        Do not follow redirects\n"
+        "      --max-redirects N    Max redirects (default: 10)\n",
+        progname);
+    exit(EXIT_FAILURE);
+}
+
+int main(int argc, char *argv[])
+{
+    const char *user_agent =
+        "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) "
+        "Gecko/20100101 Firefox/128.0";
+    const char *default_tor = "127.0.0.1:9050";
+
+    const char *url_arg = NULL;
+    const char *tor_proxy = NULL;
+    bool use_tor = false;
+    bool follow_redirects = true;
+    int max_redirects = 10;
+    bool head_request = false;
+    char extra_headers[4096] = {0};
+    char post_data[8192] = {0};
+    char output_file[256] = {0};
+    char auth_header[256] = {0};
+
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-A") == 0 ||
+            strcmp(argv[i], "--user-agent") == 0) {
+            if (i + 1 < argc) user_agent = argv[++i];
+            else usage(argv[0]);
+        }
+        else if (strcmp(argv[i], "-T") == 0 ||
+                 strcmp(argv[i], "--tor") == 0) {
+            use_tor = true;
+            if (i + 1 < argc && argv[i + 1][0] != '-' &&
+                strchr(argv[i + 1], ':')) {
+                tor_proxy = argv[i + 1];
+                i++;
+            }
+        }
+        else if (strcmp(argv[i], "-H") == 0 ||
+                 strcmp(argv[i], "--header") == 0) {
+            if (i + 1 < argc) {
+                strncat(extra_headers, argv[++i],
+                        sizeof(extra_headers) -
+                        strlen(extra_headers) - 3);
+                strcat(extra_headers, "\r\n");
+            } else usage(argv[0]);
+        }
+        else if (strcmp(argv[i], "-d") == 0 ||
+                 strcmp(argv[i], "--data") == 0) {
+            if (i + 1 < argc) {
+                const char *val = argv[++i];
+                if (val[0] == '@') {
+                    FILE *f = fopen(val + 1, "r");
+                    if (f) {
+                        fread(post_data, 1,
+                              sizeof(post_data) - 1, f);
+                        fclose(f);
+                    }
+                } else {
+                    strncpy(post_data, val,
+                            sizeof(post_data) - 1);
+                }
+            } else usage(argv[0]);
+        }
+        else if (strcmp(argv[i], "-o") == 0 ||
+                 strcmp(argv[i], "--output") == 0) {
+            if (i + 1 < argc)
+                strncpy(output_file, argv[++i],
+                        sizeof(output_file) - 1);
+            else usage(argv[0]);
+        }
+        else if (strcmp(argv[i], "-u") == 0 ||
+                 strcmp(argv[i], "--user") == 0) {
+            if (i + 1 < argc)
+                snprintf(auth_header, sizeof(auth_header),
+                    "Authorization: Basic %s\r\n", argv[++i]);
+            else usage(argv[0]);
+        }
+        else if (strcmp(argv[i], "-I") == 0 ||
+                 strcmp(argv[i], "--head") == 0) {
+            head_request = true;
+        }
+        else if (strcmp(argv[i], "--no-location") == 0) {
+            follow_redirects = false;
+        }
+        else if (strcmp(argv[i], "--max-redirects") == 0 &&
+                 i + 1 < argc) {
+            max_redirects = atoi(argv[++i]);
+        }
+        else if (url_arg == NULL) {
+            url_arg = argv[i];
+        }
+    }
+
+    if (url_arg == NULL)
+        usage(argv[0]);
+    if (use_tor && tor_proxy == NULL)
+        tor_proxy = default_tor;
+\end{lstlisting}
+\begin{lstlisting}[style=newcode,language=C,firstnumber=last]
+    url_t u = {0};
+    if (parse_url(url_arg, &u) != 0) {
+        fprintf(stderr, "Failed to parse URL\n");
+        return EXIT_FAILURE;
+    }
+    printf("https=%d host=%s port=%u path=%s\n",
+           u.https, u.host, u.port, u.path);
+    (void)user_agent; (void)use_tor; (void)tor_proxy;
+    (void)follow_redirects; (void)max_redirects;
+    (void)head_request; (void)extra_headers;
+    (void)post_data; (void)output_file; (void)auth_header;
+\end{lstlisting}
+\begin{lstlisting}[style=oldcode,language=C,firstnumber=last]
+    return 0;
+}
+\end{lstlisting}
+\FullSourceStop
+
+Try a few inputs:
+
+\begin{lstlisting}[style=snippet,language=bash]
+./urlget http://example.com
+./urlget https://example.com:8443/api?x=1
+./urlget http://[::1]:8080/status
+\end{lstlisting}

@@ -1,0 +1,65 @@
+\section{Step 1: Basic Project Skeleton}
+
+Every non-trivial program starts as something almost trivial. Before sockets,
+TLS, or argument parsing, we need a file that compiles, accepts a URL on the
+command line, and proves the tool is wired up.
+
+\subsection{Why This Step Exists}
+
+If \texttt{main} cannot see \texttt{argv}, nothing later matters. A skeleton
+also gives you a compile command you will reuse for the rest of the tutorial:
+
+\begin{lstlisting}[style=snippet,language=bash]
+gcc -Wall -Wextra -O2 -o urlget urlget.c
+./urlget http://example.com
+\end{lstlisting}
+
+\subsection{What We Add}
+
+\begin{itemize}[leftmargin=1.4em]
+    \item Standard headers for I/O and \texttt{EXIT\_FAILURE}
+    \item A check that at least one argument (the URL) was provided
+    \item A confirmation print so you can see the argument was received
+\end{itemize}
+
+\subsection{New Code}
+
+\begin{lstlisting}[style=snippet,language=C]
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(int argc, char *argv[])
+{
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s <URL>\n", argv[0]);
+        return EXIT_FAILURE;
+    }
+    printf("Requested: %s\n", argv[1]);
+    return 0;
+}
+\end{lstlisting}
+
+Error messages go to \texttt{stderr}; successful chatter goes to
+\texttt{stdout}. That split stays useful once the program starts printing
+HTTP bodies to stdout.
+
+\FullSourceStart{urlgetstep01}
+\begin{lstlisting}[style=newcode,language=C,firstnumber=1]
+/* urlget.c -- Step 1: basic skeleton */
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(int argc, char *argv[])
+{
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s <URL>\n", argv[0]);
+        return EXIT_FAILURE;
+    }
+    printf("Requested: %s\n", argv[1]);
+    return 0;
+}
+\end{lstlisting}
+\FullSourceStop
+
+At this stage everything is new, so the whole file is highlighted. From the
+next step onward, only the deltas stay green.

@@ -1,0 +1,176 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{fancyhdr}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{caption}
+
+\setlength{\headheight}{14pt}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{Building a Minimal Command-Line Web Client in C}
+\fancyhead[R]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\titleformat{\section}{\Large\bfseries\color{blue!70!black}}{}{0em}{}[\titlerule]
+\titleformat{\subsection}{\large\bfseries\color{blue!50!black}}{}{0em}{}
+
+% Colors for progressive source listings
+\definecolor{codeold}{gray}{0.58}
+\definecolor{codebg}{RGB}{248,248,248}
+\definecolor{newbg}{RGB}{232,245,233}
+\definecolor{newframe}{RGB}{46,125,50}
+
+\lstdefinestyle{basec}{
+    language=C,
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    breakatwhitespace=false,
+    columns=fullflexible,
+    keepspaces=true,
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    numbersep=6pt,
+    tabsize=4,
+    showstringspaces=false,
+    showspaces=false,
+    captionpos=b,
+    xleftmargin=1.2em,
+    framexleftmargin=0.6em,
+    aboveskip=0.4em,
+    belowskip=0.15em
+}
+
+% Prior / unchanged code: light gray so it recedes
+\lstdefinestyle{oldcode}{
+    style=basec,
+    basicstyle=\ttfamily\footnotesize\color{codeold},
+    backgroundcolor=\color{codebg},
+    keywordstyle=\color{codeold},
+    commentstyle=\color{codeold},
+    stringstyle=\color{codeold},
+    identifierstyle=\color{codeold},
+    frame=none,
+    rulecolor=\color{gray!30}
+}
+
+% Newly added code: full color so it pops
+\lstdefinestyle{newcode}{
+    style=basec,
+    basicstyle=\ttfamily\footnotesize\color{black},
+    backgroundcolor=\color{newbg},
+    keywordstyle=\color{blue!80!black},
+    commentstyle=\color{green!45!black},
+    stringstyle=\color{red!70!black},
+    identifierstyle=\color{black},
+    frame=leftline,
+    framerule=2.5pt,
+    rulecolor=\color{newframe}
+}
+
+% Standalone \"new code\" snippet (not part of full-file collage)
+\lstdefinestyle{snippet}{
+    style=basec,
+    basicstyle=\ttfamily\footnotesize,
+    backgroundcolor=\color{newbg},
+    keywordstyle=\color{blue!80!black},
+    commentstyle=\color{green!45!black},
+    stringstyle=\color{red!70!black},
+    frame=single,
+    rulecolor=\color{newframe},
+    aboveskip=0.8em,
+    belowskip=0.8em
+}
+
+% Final complete file (everything \"new\" / current)
+\lstdefinestyle{fullcode}{
+    style=basec,
+    basicstyle=\ttfamily\footnotesize,
+    backgroundcolor=\color{gray!6},
+    keywordstyle=\color{blue!80!black},
+    commentstyle=\color{green!45!black},
+    stringstyle=\color{red!70!black},
+    frame=single,
+    rulecolor=\color{gray!50},
+    aboveskip=0.8em,
+    belowskip=0.8em
+}
+
+% Continuous line numbers across old/new listing fragments of one file
+% (Do not name these \end... --- LaTeX reserves that prefix for environments.)
+\newcommand{\FullSourceStart}[1]{%
+  \subsection{Full Source at This Stage}%
+  \textit{Gray = already present. Green-highlighted = added in this step.}%
+  \par\vspace{0.4em}%
+  \lstset{name=#1}%
+}
+\newcommand{\FullSourceStop}{\lstset{name={}}}
+
+\title{\textbf{Building a Minimal Command-Line Internet Client in C}\\[0.4em]
+\large A Step-by-Step Tutorial}
+\author{S.F.}
+\date{July 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This tutorial guides you through the creation of a compact yet powerful
+command-line tool (\texttt{urlget}) capable of fetching web pages over HTTP
+and HTTPS, with optional Tor support via SOCKS5. Development is incremental:
+each step adds a focused piece of functionality, explains \emph{why} it exists,
+and shows the complete source so far---with prior code muted in gray and new
+code highlighted---so you always know what changed and where it lives.
+\end{abstract}
+
+\section*{Foreword}
+\addcontentsline{toc}{section}{Foreword}
+
+High-level libraries are wonderful until you need to know what they are
+actually doing. This tutorial takes the opposite path: we talk to the network
+with ordinary C, POSIX sockets, and a thin slice of OpenSSL. The point is not
+machismo. It is demystification.
+
+\textbf{Almost bare-metal networking is not hard.} Creating a socket,
+connecting it, writing bytes, and reading bytes is a short, repeatable recipe.
+Once those four moves are clear, you already understand the bulk of what every
+network client does under the hood. Making the same path meaningfully faster
+in user space usually means dropping to assembly (or accepting that the kernel,
+the NIC, and physics own the rest of the budget). Clarity first; micro-optimizations
+later, and only if measurement demands them.
+
+\textbf{After the building blocks, the pattern barely changes.} Resolve an
+address, open a socket, connect, send, receive, close. That loop is the same
+whether the peer speaks HTTP, SMTP, a binary game protocol, or something you
+invented this afternoon. What changes in the later stages is almost always the
+\emph{payload}: is the protocol text or binary, how are messages framed, and
+how do you parse them safely? HTTP headers, SOCKS5 handshakes, and TLS records
+look different on the wire, but they all ride the same socket primitives.
+
+\texttt{urlget} is a small vehicle for that idea---a mini command-line client
+you can read end to end. If you finish it and think ``that was mostly sockets
+plus parsing,'' the foreword did its job.
+
+\hfill--- S.F.
+
+\tableofcontents
+\newpage
+
+\include{step01_introduction}
+\include{step02_skeleton}
+\include{step03_usage}
+\include{step04_arg_parsing}
+\include{step05_url_parsing}
+\include{step06_tcp_http}
+\include{step07_https}
+\include{step08_tor_socks5}
+\include{step09_redirects}
+\include{step10_advanced_features}
+\include{step11_final_polish}
+
+\end{document}
